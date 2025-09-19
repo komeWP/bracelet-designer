@@ -1,0 +1,220 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>Interactive Bracelet — Hotspot Builder</title>
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <style>
+    :root { --accent:#0b69ff; --muted:#666; --bg:#fafafa; }
+    body{font-family:system-ui,Segoe UI,Roboto,Arial; margin:0; padding:20px; background:var(--bg); color:#123;}
+    .top {display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin-bottom:12px}
+    .controls button,input[type=file]{padding:8px 12px;border-radius:8px;border:1px solid #ddd;background:#fff;cursor:pointer}
+    .controls button.primary{background:var(--accent);color:#fff;border-color:transparent}
+    .controls .mode {display:flex;gap:8px}
+    .note{font-size:13px;color:var(--muted)}
+    .layout{display:flex;gap:18px;align-items:flex-start}
+    .canvas-wrap{background:#fff;border-radius:10px;box-shadow:0 8px 24px rgba(0,0,0,0.08);padding:14px}
+    .canvas{width:720px;height:540px;position:relative;overflow:hidden;border-radius:6px;background:#eee;display:flex;align-items:center;justify-content:center}
+    #baseImg{max-width:100%;max-height:100%;display:block;user-select:none;pointer-events:none}
+    .hotspot{position:absolute;width:28px;height:28px;border-radius:50%;background:rgba(255,0,0,0.95);box-shadow:0 4px 12px rgba(0,0,0,0.18);border:2px solid #fff;cursor:grab;display:flex;align-items:center;justify-content:center;color:#fff;font-weight:700;font-size:14px}
+    .hotspot:active{cursor:grabbing}
+    .sidebar{width:320px}
+    .card{background:#fff;padding:12px;border-radius:8px;box-shadow:0 6px 18px rgba(0,0,0,0.06);margin-bottom:12px}
+    label.small{display:block;font-size:13px;color:var(--muted);margin-bottom:6px}
+    .hotspot-list{max-height:280px;overflow:auto}
+    .hot-item{display:flex;justify-content:space-between;align-items:center;padding:8px;border-radius:6px;border:1px dashed #eee;margin-bottom:8px}
+    .btn-inline{background:#fff;border:1px solid #ddd;padding:6px 8px;border-radius:6px;cursor:pointer}
+    #popup{position:fixed;display:none;z-index:999;max-width:320px;max-height:70vh;overflow:auto;padding:12px;border-radius:10px;background:#fff;box-shadow:0 12px 30px rgba(0,0,0,0.18);border:1px solid #eee}
+    #popup img{max-width:100%;display:block}
+    #popup video{max-width:100%;display:block}
+    .editor-row{display:flex;gap:8px;margin-top:8px}
+    textarea{width:100%;min-height:80px;padding:8px;border-radius:8px;border:1px solid #ddd;resize:vertical}
+    .muted{font-size:12px;color:var(--muted)}
+    .small{font-size:13px}
+  </style>
+</head>
+<body>
+  <div class="top">
+    <div class="controls">
+      <label class="small">Step 1 — Upload base image</label>
+      <input id="baseUpload" type="file" accept="image/*" />
+      <button id="resetBase">Clear</button>
+    </div>
+
+    <div style="margin-left:12px" class="controls">
+      <label class="small">Step 2 — Add hotspots</label>
+      <div class="mode">
+        <button id="addModeBtn" class="btn-inline">Add hotspot</button>
+        <button id="editModeBtn" class="btn-inline">Edit mode</button>
+        <button id="previewBtn" class="primary">Preview</button>
+      </div>
+    </div>
+
+    <div style="margin-left:12px" class="controls">
+      <label class="small">Save / Load</label>
+      <button id="downloadJSON">Download JSON</button>
+      <input id="loadJSON" type="file" accept="application/json" />
+      <button id="exportViewer" class="primary">Export Viewer HTML</button>
+    </div>
+  </div>
+
+  <div class="layout">
+    <div class="canvas-wrap card">
+      <div class="muted small" style="margin-bottom:6px">Click "Add hotspot", then click the image to create a hotspot. Drag hotspots to reposition.</div>
+      <div id="canvas" class="canvas" tabindex="0">
+        <img id="baseImg" src="" alt="Base" />
+      </div>
+    </div>
+
+    <div class="sidebar">
+      <div class="card">
+        <div style="display:flex;justify-content:space-between;align-items:center">
+          <strong>Hotspots</strong>
+          <span id="hotCount" class="muted small">0</span>
+        </div>
+        <div class="hotspot-list" id="hotList" style="margin-top:8px"></div>
+        <div class="muted small">Click a hotspot in the list to edit or double-click its marker on canvas.</div>
+      </div>
+
+      <div class="card">
+        <strong>Tips</strong>
+        <ul style="padding-left:18px;margin:8px 0;color:var(--muted)">
+          <li>Export JSON to save everything (includes images & hotspot media as data URLs).</li>
+          <li>Or Export Viewer HTML to share directly with a friend.</li>
+          <li>Large uploaded videos/images will enlarge the file size.</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+
+  <div id="editor" style="display:none;position:fixed;left:50%;top:50%;transform:translate(-50%,-50%);z-index:1001;background:#fff;border-radius:10px;padding:14px;box-shadow:0 12px 30px rgba(0,0,0,0.18);width:420px;max-width:90%">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+      <strong>Edit Hotspot</strong>
+      <button id="closeEditor" class="btn-inline">Close</button>
+    </div>
+    <div class="small muted">You can add text or upload an image/video for this hotspot.</div>
+
+    <div style="margin-top:10px">
+      <label class="small">Popup text</label>
+      <textarea id="hotText"></textarea>
+
+      <div class="editor-row">
+        <div style="flex:1">
+          <label class="small">Upload image or video (optional)</label>
+          <input id="hotMedia" type="file" accept="image/*,video/*" />
+        </div>
+        <div style="width:130px">
+          <div class="muted small">Preview</div>
+          <div id="mediaPreview" style="width:120px;height:80px;border-radius:8px;border:1px solid #eee;display:flex;align-items:center;justify-content:center;overflow:hidden;background:#fafafa"></div>
+        </div>
+      </div>
+
+      <div style="display:flex;gap:8px;margin-top:10px;justify-content:flex-end">
+        <button id="deleteHot" class="btn-inline">Delete</button>
+        <button id="saveHot" class="btn-inline primary">Save</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="popup"></div>
+
+<script>
+// (Original builder script remains the same up to JSON handling)
+// ...
+
+// --- Export Viewer HTML ---
+const exportViewerBtn = document.getElementById('exportViewer');
+
+exportViewerBtn.addEventListener('click', () => {
+  const payload = {
+    baseImageDataURL,
+    hotspots: hotspots.map(h => ({
+      id: h.id,
+      xPct: h.xPct,
+      yPct: h.yPct,
+      text: h.text || '',
+      media: h.media || null
+    }))
+  };
+
+  const viewerHTML = `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Interactive Bracelet Viewer</title>
+  <style>
+    body { margin:0; font-family: sans-serif; background:#fafafa; }
+    .canvas { width:100vw; height:100vh; display:flex; align-items:center; justify-content:center; position:relative; }
+    img { max-width:100%; max-height:100%; }
+    .hotspot { position:absolute; width:24px; height:24px; border-radius:50%; background:red; border:2px solid #fff; cursor:pointer; }
+    #popup { position:fixed; display:none; z-index:1000; max-width:320px; padding:12px; border-radius:8px; background:#fff;
+             box-shadow:0 6px 18px rgba(0,0,0,0.25); }
+    #popup img, #popup video { max-width:100%; display:block; margin-top:8px; }
+  </style>
+</head>
+<body>
+  <div class="canvas">
+    <img id="bracelet" src="${payload.baseImageDataURL}" />
+    ${payload.hotspots.map(h => `
+      <div class="hotspot" style="left:${h.xPct}%;top:${h.yPct}%;transform:translate(-50%,-50%)"
+           data-id="${h.id}"></div>
+    `).join('')}
+  </div>
+  <div id="popup"></div>
+
+<script>
+const hotspots = ${JSON.stringify(payload.hotspots)};
+const popup = document.getElementById('popup');
+
+document.querySelectorAll('.hotspot').forEach(hs => {
+  hs.addEventListener('click', (e) => {
+    const id = hs.dataset.id;
+    const h = hotspots.find(x => x.id === id);
+    if (!h) return;
+
+    popup.innerHTML = "";
+    if (h.text) {
+      const p = document.createElement("p");
+      p.textContent = h.text;
+      popup.appendChild(p);
+    }
+    if (h.media && h.media.dataUrl) {
+      if (h.media.type.startsWith("video")) {
+        const v = document.createElement("video");
+        v.src = h.media.dataUrl;
+        v.controls = true;
+        popup.appendChild(v);
+      } else {
+        const i = document.createElement("img");
+        i.src = h.media.dataUrl;
+        popup.appendChild(i);
+      }
+    }
+    popup.style.left = (e.clientX + 12) + "px";
+    popup.style.top = (e.clientY + 12) + "px";
+    popup.style.display = "block";
+  });
+});
+
+document.addEventListener("click", (e) => {
+  if (!e.target.closest(".hotspot")) {
+    popup.style.display = "none";
+  }
+});
+</script>
+</body>
+</html>`;
+
+  const blob = new Blob([viewerHTML], { type: 'text/html' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = 'bracelet-viewer.html';
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+});
+</script>
+</body>
+</html>
